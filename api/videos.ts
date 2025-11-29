@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createClient } from 'redis';
 
 const VIDEOS_KEY = 'igbo-heritage-videos';
 
@@ -9,16 +10,24 @@ interface Video {
 }
 
 // Fallback in-memory storage (only for development/testing)
-// Note: This is not persistent across deployments. Set up Vercel KV for production.
+// Note: This is not persistent across deployments. Set up Redis for production.
 let memoryStorage: Video[] = [];
 
-// Helper to get KV instance
-async function getKV() {
+// Helper to get Redis client
+async function getRedis() {
   try {
-    const { kv } = await import('@vercel/kv');
-    return kv;
+    const redisUrl = process.env.REDIS_URL;
+    if (!redisUrl) {
+      console.warn('REDIS_URL not configured. Using in-memory storage (not persistent).');
+      return null;
+    }
+
+    const client = createClient({ url: redisUrl });
+    await client.connect();
+    return client;
   } catch (error) {
-    console.warn('Vercel KV not configured. Using in-memory storage (not persistent).');
+    console.error('Failed to connect to Redis:', error);
+    console.warn('Falling back to in-memory storage (not persistent).');
     return null;
   }
 }
@@ -36,14 +45,17 @@ export default async function handler(
     return res.status(200).end();
   }
 
+  let redis: ReturnType<typeof createClient> | null = null;
+
   try {
-    const kv = await getKV();
+    redis = await getRedis();
 
     if (req.method === 'GET') {
       // Get all videos
-      if (kv) {
-        const videos = await kv.get<Video[]>(VIDEOS_KEY);
-        return res.status(200).json(videos || []);
+      if (redis) {
+        const videosJson = await redis.get(VIDEOS_KEY);
+        const videos = videosJson ? JSON.parse(videosJson) : [];
+        return res.status(200).json(videos);
       } else {
         // Fallback to memory storage
         return res.status(200).json(memoryStorage);
@@ -64,10 +76,11 @@ export default async function handler(
         description: description?.trim() || '',
       };
 
-      if (kv) {
-        const videos = (await kv.get<Video[]>(VIDEOS_KEY)) || [];
+      if (redis) {
+        const videosJson = await redis.get(VIDEOS_KEY);
+        const videos = videosJson ? JSON.parse(videosJson) : [];
         videos.push(newVideo);
-        await kv.set(VIDEOS_KEY, videos);
+        await redis.set(VIDEOS_KEY, JSON.stringify(videos));
       } else {
         // Fallback to memory storage
         memoryStorage.push(newVideo);
@@ -84,9 +97,10 @@ export default async function handler(
         return res.status(400).json({ error: 'ID and YouTube URL are required' });
       }
 
-      if (kv) {
-        const videos = (await kv.get<Video[]>(VIDEOS_KEY)) || [];
-        const videoIndex = videos.findIndex((v) => v.id === id);
+      if (redis) {
+        const videosJson = await redis.get(VIDEOS_KEY);
+        const videos = videosJson ? JSON.parse(videosJson) : [];
+        const videoIndex = videos.findIndex((v: Video) => v.id === id);
 
         if (videoIndex === -1) {
           return res.status(404).json({ error: 'Video not found' });
@@ -98,7 +112,7 @@ export default async function handler(
           description: description?.trim() || '',
         };
 
-        await kv.set(VIDEOS_KEY, videos);
+        await redis.set(VIDEOS_KEY, JSON.stringify(videos));
         return res.status(200).json(videos[videoIndex]);
       } else {
         // Fallback to memory storage
@@ -123,10 +137,11 @@ export default async function handler(
         return res.status(400).json({ error: 'Video ID is required' });
       }
 
-      if (kv) {
-        const videos = (await kv.get<Video[]>(VIDEOS_KEY)) || [];
-        const filteredVideos = videos.filter((v) => v.id !== id);
-        await kv.set(VIDEOS_KEY, filteredVideos);
+      if (redis) {
+        const videosJson = await redis.get(VIDEOS_KEY);
+        const videos = videosJson ? JSON.parse(videosJson) : [];
+        const filteredVideos = videos.filter((v: Video) => v.id !== id);
+        await redis.set(VIDEOS_KEY, JSON.stringify(filteredVideos));
       } else {
         // Fallback to memory storage
         memoryStorage = memoryStorage.filter((v) => v.id !== id);
@@ -138,7 +153,18 @@ export default async function handler(
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
     console.error('API Error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  } finally {
+    // Close Redis connection
+    if (redis) {
+      try {
+        await redis.quit();
+      } catch (error) {
+        console.error('Error closing Redis connection:', error);
+      }
+    }
   }
 }
-
