@@ -16,12 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-interface Video {
-  id: string;
-  youtubeUrl: string;
-  description: string;
-}
+import { videoApi, type Video } from "@/lib/api";
 
 const AdminDashboard = () => {
   const { toast } = useToast();
@@ -29,6 +24,7 @@ const AdminDashboard = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     youtubeUrl: "",
     description: "",
@@ -38,25 +34,21 @@ const AdminDashboard = () => {
     loadVideos();
   }, []);
 
-  const loadVideos = () => {
-    const storedVideos = localStorage.getItem("igbo-heritage-videos");
-    if (storedVideos) {
-      try {
-        setVideos(JSON.parse(storedVideos));
-      } catch (error) {
-        console.error("Error loading videos:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load videos.",
-          variant: "destructive",
-        });
-      }
+  const loadVideos = async () => {
+    setIsLoading(true);
+    try {
+      const fetchedVideos = await videoApi.getAll();
+      setVideos(fetchedVideos);
+    } catch (error) {
+      console.error("Error loading videos:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load videos. Please try again later.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
-  };
-
-  const saveVideos = (newVideos: Video[]) => {
-    localStorage.setItem("igbo-heritage-videos", JSON.stringify(newVideos));
-    setVideos(newVideos);
   };
 
   const validateYouTubeUrl = (url: string) => {
@@ -64,7 +56,7 @@ const AdminDashboard = () => {
     return regExp.test(url);
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!formData.youtubeUrl.trim()) {
       toast({
         title: "YouTube URL required",
@@ -83,20 +75,29 @@ const AdminDashboard = () => {
       return;
     }
 
-    const newVideo: Video = {
-      id: Date.now().toString(),
-      youtubeUrl: formData.youtubeUrl.trim(),
-      description: formData.description.trim(),
-    };
-
-    const newVideos = [...videos, newVideo];
-    saveVideos(newVideos);
-    setFormData({ youtubeUrl: "", description: "" });
-    setIsAdding(false);
-    toast({
-      title: "Success",
-      description: "Video added successfully!",
-    });
+    setIsLoading(true);
+    try {
+      const newVideo = await videoApi.create({
+        youtubeUrl: formData.youtubeUrl.trim(),
+        description: formData.description.trim(),
+      });
+      setVideos([...videos, newVideo]);
+      setFormData({ youtubeUrl: "", description: "" });
+      setIsAdding(false);
+      toast({
+        title: "Success",
+        description: "Video added successfully!",
+      });
+    } catch (error) {
+      console.error("Error adding video:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to add video. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleEdit = (video: Video) => {
@@ -107,7 +108,7 @@ const AdminDashboard = () => {
     });
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingId) return;
 
     if (!formData.youtubeUrl.trim()) {
@@ -128,23 +129,29 @@ const AdminDashboard = () => {
       return;
     }
 
-    const newVideos = videos.map((video) =>
-      video.id === editingId
-        ? {
-            ...video,
-            youtubeUrl: formData.youtubeUrl.trim(),
-            description: formData.description.trim(),
-          }
-        : video
-    );
-
-    saveVideos(newVideos);
-    setEditingId(null);
-    setFormData({ youtubeUrl: "", description: "" });
-    toast({
-      title: "Success",
-      description: "Video updated successfully!",
-    });
+    setIsLoading(true);
+    try {
+      const updatedVideo = await videoApi.update(editingId, {
+        youtubeUrl: formData.youtubeUrl.trim(),
+        description: formData.description.trim(),
+      });
+      setVideos(videos.map((video) => (video.id === editingId ? updatedVideo : video)));
+      setEditingId(null);
+      setFormData({ youtubeUrl: "", description: "" });
+      toast({
+        title: "Success",
+        description: "Video updated successfully!",
+      });
+    } catch (error) {
+      console.error("Error updating video:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update video. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCancel = () => {
@@ -153,16 +160,28 @@ const AdminDashboard = () => {
     setFormData({ youtubeUrl: "", description: "" });
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return;
 
-    const newVideos = videos.filter((video) => video.id !== deleteId);
-    saveVideos(newVideos);
-    setDeleteId(null);
-    toast({
-      title: "Success",
-      description: "Video deleted successfully!",
-    });
+    setIsLoading(true);
+    try {
+      await videoApi.delete(deleteId);
+      setVideos(videos.filter((video) => video.id !== deleteId));
+      setDeleteId(null);
+      toast({
+        title: "Success",
+        description: "Video deleted successfully!",
+      });
+    } catch (error) {
+      console.error("Error deleting video:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete video. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -245,9 +264,9 @@ const AdminDashboard = () => {
                     />
                   </div>
                   <div className="flex gap-2">
-                    <Button onClick={handleAdd} className="bg-primary hover:bg-primary/90">
+                    <Button onClick={handleAdd} className="bg-primary hover:bg-primary/90" disabled={isLoading}>
                       <Save className="h-4 w-4 mr-2" />
-                      Save Video
+                      {isLoading ? "Saving..." : "Save Video"}
                     </Button>
                     <Button variant="outline" onClick={handleCancel}>
                       <X className="h-4 w-4 mr-2" />
@@ -262,20 +281,27 @@ const AdminDashboard = () => {
           {/* Add Button */}
           {!isAdding && editingId === null && (
             <div className="mb-8">
-              <Button
-                onClick={() => setIsAdding(true)}
-                size="lg"
-                className="bg-primary hover:bg-primary/90 shadow-warm"
-              >
-                <Plus className="h-5 w-5 mr-2" />
-                Add New Video
-              </Button>
+                    <Button
+                      onClick={() => setIsAdding(true)}
+                      size="lg"
+                      className="bg-primary hover:bg-primary/90 shadow-warm"
+                      disabled={isLoading}
+                    >
+                      <Plus className="h-5 w-5 mr-2" />
+                      Add New Video
+                    </Button>
             </div>
           )}
 
           {/* Videos List */}
           <div className="space-y-4">
-            {videos.length === 0 ? (
+            {isLoading && videos.length === 0 ? (
+              <Card className="border-primary/20">
+                <CardContent className="pt-12 pb-12 text-center">
+                  <p className="text-muted-foreground">Loading videos...</p>
+                </CardContent>
+              </Card>
+            ) : videos.length === 0 ? (
               <Card className="border-primary/20">
                 <CardContent className="pt-12 pb-12 text-center">
                   <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -333,9 +359,9 @@ const AdminDashboard = () => {
                             />
                           </div>
                           <div className="flex gap-2">
-                            <Button onClick={handleSaveEdit} className="bg-accent hover:bg-accent/90">
+                            <Button onClick={handleSaveEdit} className="bg-accent hover:bg-accent/90" disabled={isLoading}>
                               <Save className="h-4 w-4 mr-2" />
-                              Save Changes
+                              {isLoading ? "Saving..." : "Save Changes"}
                             </Button>
                             <Button variant="outline" onClick={handleCancel}>
                               <X className="h-4 w-4 mr-2" />

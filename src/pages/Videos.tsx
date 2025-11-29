@@ -3,27 +3,27 @@ import Footer from "@/components/Footer";
 import { Card, CardContent } from "@/components/ui/card";
 import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
-
-interface Video {
-  id: string;
-  youtubeUrl: string;
-  description: string;
-}
+import { videoApi, type Video } from "@/lib/api";
 
 const Videos = () => {
   const [videos, setVideos] = useState<Video[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Load videos from localStorage
-    const storedVideos = localStorage.getItem("igbo-heritage-videos");
-    if (storedVideos) {
-      try {
-        setVideos(JSON.parse(storedVideos));
-      } catch (error) {
-        console.error("Error loading videos:", error);
-      }
-    }
+    loadVideos();
   }, []);
+
+  const loadVideos = async () => {
+    setIsLoading(true);
+    try {
+      const fetchedVideos = await videoApi.getAll();
+      setVideos(fetchedVideos);
+    } catch (error) {
+      console.error("Error loading videos:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const getYouTubeEmbedUrl = (url: string) => {
     // Extract video ID from various YouTube URL formats
@@ -55,7 +55,15 @@ const Videos = () => {
         {/* Videos Section */}
         <section className="py-20">
           <div className="container mx-auto px-4">
-            {videos.length === 0 ? (
+            {isLoading ? (
+              <div className="max-w-2xl mx-auto text-center">
+                <Card className="border-primary/20">
+                  <CardContent className="pt-12 pb-12">
+                    <p className="text-muted-foreground">Loading videos...</p>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : videos.length === 0 ? (
               <div className="max-w-2xl mx-auto text-center">
                 <Card className="border-primary/20">
                   <CardContent className="pt-12 pb-12">
