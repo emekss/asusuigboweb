@@ -4,8 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Save, X, Video, Shield } from "lucide-react";
+import { Plus, Trash2, Edit, Save, X, Video, Shield, Mail, Clock, User, MessageSquare } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,14 +18,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { videoApi, type Video } from "@/lib/api";
+import { videoApi, contactApi, type Video, type ContactSubmission } from "@/lib/api";
 
 const AdminDashboard = () => {
   const { toast } = useToast();
   const [videos, setVideos] = useState<Video[]>([]);
+  const [contactSubmissions, setContactSubmissions] = useState<ContactSubmission[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteContactId, setDeleteContactId] = useState<string | null>(null);
+  const [selectedSubmission, setSelectedSubmission] = useState<ContactSubmission | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     youtubeUrl: "",
@@ -32,6 +37,7 @@ const AdminDashboard = () => {
 
   useEffect(() => {
     loadVideos();
+    loadContactSubmissions();
   }, []);
 
   const loadVideos = async () => {
@@ -49,6 +55,62 @@ const AdminDashboard = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const loadContactSubmissions = async () => {
+    try {
+      const submissions = await contactApi.getAll();
+      setContactSubmissions(submissions);
+    } catch (error) {
+      console.error("Error loading contact submissions:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load contact submissions. Please try again later.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleViewSubmission = async (submission: ContactSubmission) => {
+    setSelectedSubmission(submission);
+    if (!submission.read) {
+      try {
+        await contactApi.markAsRead(submission.id, true);
+        setContactSubmissions(contactSubmissions.map(s => 
+          s.id === submission.id ? { ...s, read: true } : s
+        ));
+      } catch (error) {
+        console.error("Error marking submission as read:", error);
+      }
+    }
+  };
+
+  const handleDeleteContact = async () => {
+    if (!deleteContactId) return;
+
+    setIsLoading(true);
+    try {
+      await contactApi.delete(deleteContactId);
+      setContactSubmissions(contactSubmissions.filter(s => s.id !== deleteContactId));
+      setDeleteContactId(null);
+      toast({
+        title: "Success",
+        description: "Contact submission deleted successfully!",
+      });
+    } catch (error) {
+      console.error("Error deleting submission:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete submission. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const formatDate = (timestamp: number) => {
+    return new Date(timestamp).toLocaleString();
   };
 
   const validateYouTubeUrl = (url: string) => {
@@ -198,7 +260,7 @@ const AdminDashboard = () => {
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
                   Admin Dashboard
                 </h1>
-                <p className="text-sm text-muted-foreground">Manage Videos</p>
+                <p className="text-sm text-muted-foreground">Manage Content & Submissions</p>
               </div>
             </div>
             <Button
@@ -214,17 +276,35 @@ const AdminDashboard = () => {
 
       <main className="flex-grow container mx-auto px-4 py-12">
         <div className="max-w-6xl mx-auto">
-          {/* Hero Section */}
-          <section className="mb-12">
-            <div className="text-center mb-8">
-              <h2 className="text-3xl md:text-4xl font-bold mb-4 text-foreground">
-                Video Management
-              </h2>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Add, edit, or remove YouTube videos from the Videos page. Changes will be reflected immediately.
-              </p>
-            </div>
-          </section>
+          <Tabs defaultValue="videos" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-8">
+              <TabsTrigger value="videos" className="flex items-center space-x-2">
+                <Video className="h-4 w-4" />
+                <span>Videos</span>
+              </TabsTrigger>
+              <TabsTrigger value="contact" className="flex items-center space-x-2">
+                <Mail className="h-4 w-4" />
+                <span>Contact Form</span>
+                {contactSubmissions.filter(s => !s.read).length > 0 && (
+                  <span className="ml-2 px-2 py-0.5 text-xs bg-primary text-primary-foreground rounded-full">
+                    {contactSubmissions.filter(s => !s.read).length}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="videos" className="space-y-8">
+              {/* Hero Section */}
+              <section>
+                <div className="text-center mb-8">
+                  <h2 className="text-3xl md:text-4xl font-bold mb-4 text-foreground">
+                    Video Management
+                  </h2>
+                  <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+                    Add, edit, or remove YouTube videos from the Videos page. Changes will be reflected immediately.
+                  </p>
+                </div>
+              </section>
 
           {/* Add Video Form */}
           {isAdding && (
@@ -428,10 +508,109 @@ const AdminDashboard = () => {
               })
             )}
           </div>
+            </TabsContent>
+
+            <TabsContent value="contact" className="space-y-8">
+              {/* Contact Form Section */}
+              <section>
+                <div className="text-center mb-8">
+                  <h2 className="text-3xl md:text-4xl font-bold mb-4 text-foreground">
+                    Contact Form Submissions
+                  </h2>
+                  <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+                    View and manage contact form submissions from visitors.
+                  </p>
+                </div>
+              </section>
+
+              {/* Contact Submissions List */}
+              <div className="space-y-4">
+                {contactSubmissions.length === 0 ? (
+                  <Card className="border-primary/20">
+                    <CardContent className="pt-12 pb-12 text-center">
+                      <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Mail className="h-8 w-8 text-primary" />
+                      </div>
+                      <h3 className="text-2xl font-semibold mb-4 text-foreground">
+                        No Submissions Yet
+                      </h3>
+                      <p className="text-muted-foreground">
+                        Contact form submissions will appear here.
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  contactSubmissions.map((submission) => (
+                    <Card
+                      key={submission.id}
+                      className={`border-primary/20 hover:border-primary/40 transition-all duration-300 hover:shadow-warm ${
+                        !submission.read ? 'bg-primary/5 border-primary/30' : ''
+                      }`}
+                    >
+                      <CardContent className="pt-6">
+                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <h3 className="font-semibold text-lg">{submission.subject}</h3>
+                                  {!submission.read && (
+                                    <span className="px-2 py-0.5 text-xs bg-primary text-primary-foreground rounded-full">
+                                      New
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mb-2">
+                                  <div className="flex items-center space-x-1">
+                                    <User className="h-3 w-3" />
+                                    <span>{submission.name}</span>
+                                  </div>
+                                  <div className="flex items-center space-x-1">
+                                    <Mail className="h-3 w-3" />
+                                    <span>{submission.email}</span>
+                                  </div>
+                                  <div className="flex items-center space-x-1">
+                                    <Clock className="h-3 w-3" />
+                                    <span>{formatDate(submission.timestamp)}</span>
+                                  </div>
+                                </div>
+                                <p className="text-muted-foreground line-clamp-2">
+                                  {submission.message}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewSubmission(submission)}
+                              className="border-primary/20 hover:border-primary/40"
+                            >
+                              <MessageSquare className="h-4 w-4 mr-2" />
+                              View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setDeleteContactId(submission.id)}
+                              className="border-destructive/20 hover:border-destructive/40 hover:bg-destructive/10"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </main>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Confirmation Dialog for Videos */}
       <AlertDialog open={deleteId !== null} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -451,6 +630,76 @@ const AdminDashboard = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Delete Confirmation Dialog for Contact Submissions */}
+      <AlertDialog open={deleteContactId !== null} onOpenChange={() => setDeleteContactId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete this contact submission.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteContact}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Contact Submission Detail Dialog */}
+      <Dialog open={selectedSubmission !== null} onOpenChange={() => setSelectedSubmission(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2">
+              <MessageSquare className="h-5 w-5 text-primary" />
+              <span>Contact Form Submission</span>
+            </DialogTitle>
+            <DialogDescription>
+              Full details of the contact form submission
+            </DialogDescription>
+          </DialogHeader>
+          {selectedSubmission && (
+            <div className="space-y-4 mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-semibold">Name</Label>
+                  <p className="text-sm text-muted-foreground mt-1">{selectedSubmission.name}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Email</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    <a href={`mailto:${selectedSubmission.email}`} className="text-primary hover:underline">
+                      {selectedSubmission.email}
+                    </a>
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Subject</Label>
+                  <p className="text-sm text-muted-foreground mt-1">{selectedSubmission.subject}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Submitted</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {formatDate(selectedSubmission.timestamp)}
+                  </p>
+                </div>
+              </div>
+              <div>
+                <Label className="text-sm font-semibold">Message</Label>
+                <p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap leading-relaxed">
+                  {selectedSubmission.message}
+                </p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

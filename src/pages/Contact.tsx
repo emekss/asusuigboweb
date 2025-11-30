@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Mail, MessageSquare, Send, Facebook, Instagram } from "lucide-react";
+import { contactApi } from "@/lib/api";
 
 const Contact = () => {
   const { toast } = useToast();
@@ -66,15 +67,29 @@ const Contact = () => {
 
     setIsSubmitting(true);
 
-    // Simulate form submission
-    setTimeout(() => {
+    try {
+      await contactApi.submit({
+        name: formData.name,
+        email: formData.email,
+        subject: formData.subject,
+        message: formData.message,
+      });
+      
       toast({
         title: "Message sent!",
         description: "Thank you for reaching out. We'll get back to you soon.",
       });
       setFormData({ name: "", email: "", subject: "", message: "" });
+    } catch (error) {
+      console.error("Error submitting form:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to send message. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
       setIsSubmitting(false);
-    }, 1000);
+    }
   };
 
   const handleChange = (

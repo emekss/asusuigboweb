@@ -92,11 +92,13 @@ const Videos = () => {
                         {embedUrl ? (
                           <div className="aspect-video w-full">
                             <iframe
-                              src={embedUrl}
+                              src={`${embedUrl}?rel=0&modestbranding=1&playsinline=1`}
                               title={video.description || "Video"}
                               className="w-full h-full"
                               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                               allowFullScreen
+                              loading="lazy"
+                              style={{ border: 0 }}
                             />
                           </div>
                         ) : (
